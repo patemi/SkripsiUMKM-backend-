@@ -52,6 +52,10 @@ exports.getUMKMById = async (req, res) => {
       });
     }
     
+    // Increment views
+    umkm.views += 1;
+    await umkm.save();
+    
     res.status(200).json({
       success: true,
       data: umkm
@@ -265,41 +269,6 @@ exports.getTopUMKM = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Gagal mengambil top UMKM',
-      error: error.message
-    });
-  }
-};
-
-
-// @desc    Increment UMKM view count
-// @route   POST /api/umkm/:id/view
-// @access  Public
-exports.incrementView = async (req, res) => {
-  try {
-    const umkm = await UMKM.findById(req.params.id);
-
-    if (!umkm) {
-      return res.status(404).json({
-        success: false,
-        message: 'UMKM tidak ditemukan'
-      });
-    }
-
-    // Increment views
-    umkm.views += 1;
-    await umkm.save();
-
-    res.status(200).json({
-      success: true,
-      message: 'View count incremented',
-      data: {
-        views: umkm.views
-      }
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Gagal mengupdate view count',
       error: error.message
     });
   }
