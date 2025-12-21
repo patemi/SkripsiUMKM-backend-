@@ -19,6 +19,14 @@ const activityLogSchema = new mongoose.Schema({
     type: String,
     required: true
   },
+  user_id: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  },
+  user_name: {
+    type: String,
+    default: 'Unknown'
+  },
   action: {
     type: String,
     enum: ['approved', 'rejected'],

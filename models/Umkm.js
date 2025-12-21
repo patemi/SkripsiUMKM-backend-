@@ -54,6 +54,10 @@ const umkmSchema = new mongoose.Schema({
     enum: ['pending', 'approved', 'rejected'],
     default: 'pending'
   },
+  alasan_penolakan: {
+    type: String,
+    default: ''
+  },
   views: {
     type: Number,
     default: 0
@@ -62,6 +66,10 @@ const umkmSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
     required: true
+  },
+  nama_user: {
+    type: String,
+    default: ''
   }
 }, {
   timestamps: true

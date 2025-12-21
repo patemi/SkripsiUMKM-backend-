@@ -1,4 +1,5 @@
 const User = require('../models/User');
+const UMKM = require('../models/Umkm');
 const { generateToken } = require('../middleware/auth');
 
 // @desc    Register user
@@ -83,6 +84,11 @@ exports.loginUser = async (req, res) => {
       });
     }
     
+    // Update lastLogin dan lastActivity
+    user.lastLogin = new Date();
+    user.lastActivity = new Date();
+    await user.save();
+    
     const token = generateToken(user._id, 'user');
     
     res.status(200).json({
@@ -92,7 +98,9 @@ exports.loginUser = async (req, res) => {
         id: user._id,
         nama_user: user.nama_user,
         email_user: user.email_user,
-        username: user.username
+        username: user.username,
+        lastLogin: user.lastLogin,
+        lastActivity: user.lastActivity
       },
       token
     });
@@ -168,17 +176,78 @@ exports.getUserStats = async (req, res) => {
 // @access  Private (Admin)
 exports.getAllUsers = async (req, res) => {
   try {
-    const users = await User.find().select('-password_user');
+    const users = await User.find()
+      .select('-password_user')
+      .sort({ lastActivity: -1, createdAt: -1 });
+    
+    // Hitung kontribusi UMKM untuk setiap user
+    const usersWithContribution = await Promise.all(
+      users.map(async (user) => {
+        const approvedCount = await UMKM.countDocuments({ 
+          user_id: user._id, 
+          status: 'approved' 
+        });
+        
+        const rejectedCount = await UMKM.countDocuments({ 
+          user_id: user._id, 
+          status: 'rejected' 
+        });
+        
+        const totalUMKM = approvedCount + rejectedCount;
+        
+        return {
+          ...user.toObject(),
+          umkmContribution: {
+            approved: approvedCount,
+            rejected: rejectedCount,
+            total: totalUMKM
+          }
+        };
+      })
+    );
     
     res.status(200).json({
       success: true,
-      count: users.length,
-      data: users
+      count: usersWithContribution.length,
+      data: usersWithContribution
     });
   } catch (error) {
     res.status(500).json({
       success: false,
       message: 'Gagal mengambil data user',
+      error: error.message
+    });
+  }
+};
+
+// @desc    Update user activity
+// @route   POST /api/user/activity
+// @access  Private (User)
+exports.updateActivity = async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id);
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User tidak ditemukan'
+      });
+    }
+    
+    user.lastActivity = new Date();
+    await user.save();
+    
+    res.status(200).json({
+      success: true,
+      message: 'Activity updated',
+      data: {
+        lastActivity: user.lastActivity
+      }
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Gagal update activity',
       error: error.message
     });
   }

@@ -25,8 +25,16 @@ const userSchema = new mongoose.Schema({
   password_user: {
     type: String,
     required: [true, 'Password harus diisi'],
-    minlength: 6,
+    minlength: 8,
     select: false
+  },
+  lastLogin: {
+    type: Date,
+    default: null
+  },
+  lastActivity: {
+    type: Date,
+    default: null
   }
 }, {
   timestamps: true

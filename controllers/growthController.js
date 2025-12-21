@@ -6,10 +6,17 @@ const User = require('../models/User');
 // @access  Private (Admin)
 exports.getGrowthData = async (req, res) => {
   try {
+    // Get current date and calculate 12 months back
+    const now = new Date();
+    const twelveMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 11, 1);
+
     // Get UMKM growth data (last 12 months)
     const umkmGrowth = await UMKM.aggregate([
       {
-        $match: { status: 'approved' }
+        $match: { 
+          status: 'approved',
+          createdAt: { $gte: twelveMonthsAgo }
+        }
       },
       {
         $group: {
@@ -22,15 +29,17 @@ exports.getGrowthData = async (req, res) => {
       },
       {
         $sort: { '_id.year': 1, '_id.month': 1 }
-      },
-      {
-        $limit: 12
       }
     ]);
 
     // Get User growth data (last 12 months)
     const userGrowth = await User.aggregate([
       {
+        $match: {
+          createdAt: { $gte: twelveMonthsAgo }
+        }
+      },
+      {
         $group: {
           _id: {
             year: { $year: '$createdAt' },
@@ -41,9 +50,6 @@ exports.getGrowthData = async (req, res) => {
       },
       {
         $sort: { '_id.year': 1, '_id.month': 1 }
-      },
-      {
-        $limit: 12
       }
     ]);
 
@@ -66,23 +72,20 @@ exports.getGrowthData = async (req, res) => {
       userMap[key] = item.count;
     });
 
-    // Get all unique months
-    const allMonths = new Set();
-    umkmGrowth.forEach(item => {
-      allMonths.add(`${item._id.year}-${item._id.month}`);
-    });
-    userGrowth.forEach(item => {
-      allMonths.add(`${item._id.year}-${item._id.month}`);
-    });
-
-    // Convert to array and sort
-    const sortedMonths = Array.from(allMonths).sort();
+    // Generate all months in order (last 12 months)
+    const allMonths = [];
+    for (let i = 0; i < 12; i++) {
+      const date = new Date(now.getFullYear(), now.getMonth() - 11 + i, 1);
+      const year = date.getFullYear();
+      const month = date.getMonth() + 1;
+      allMonths.push(`${year}-${month}`);
+    }
 
     // Build cumulative data
     let cumulativeUMKM = 0;
     let cumulativeUsers = 0;
     
-    const growthData = sortedMonths.map(monthKey => {
+    const growthData = allMonths.map(monthKey => {
       const [year, month] = monthKey.split('-').map(Number);
       const monthName = monthNames[month - 1];
       
@@ -94,7 +97,7 @@ exports.getGrowthData = async (req, res) => {
         umkm: cumulativeUMKM,
         users: cumulativeUsers,
       };
-    });
+    }).filter(item => item.umkm > 0 || item.users > 0); // Hanya tampilkan bulan yang ada data
 
     // If no data, return current month with 0
     if (growthData.length === 0) {

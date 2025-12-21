@@ -70,8 +70,14 @@ exports.getUMKMById = async (req, res) => {
 // @access  Private (User/Admin)
 exports.createUMKM = async (req, res) => {
   try {
-    // Set user_id dari token
-    req.body.user_id = req.user ? req.user._id : req.admin._id;
+    // Set user_id dan nama_user dari token
+    if (req.user) {
+      req.body.user_id = req.user._id;
+      req.body.nama_user = req.user.nama_user;
+    } else if (req.admin) {
+      req.body.user_id = req.admin._id;
+      req.body.nama_user = req.admin.nama_admin;
+    }
     
     // Handle foto upload
     if (req.files && req.files.length > 0) {
@@ -178,14 +184,24 @@ exports.verifyUMKM = async (req, res) => {
     }
     
     umkm.status = action === 'approve' ? 'approved' : 'rejected';
+    
+    // Simpan alasan penolakan jika ditolak
+    if (action === 'reject' && reason) {
+      umkm.alasan_penolakan = reason;
+    } else if (action === 'approve') {
+      umkm.alasan_penolakan = ''; // Clear alasan jika disetujui
+    }
+    
     await umkm.save();
     
-    // Buat activity log
+    // Buat activity log dengan informasi user pengirim
     await ActivityLog.create({
       admin_id: req.admin._id,
       admin_name: req.admin.nama_admin,
       umkm_id: umkm._id,
       umkm_nama: umkm.nama_umkm,
+      user_id: umkm.user_id,
+      user_name: umkm.nama_user || 'Unknown',
       action: action === 'approve' ? 'approved' : 'rejected',
       reason: reason || ''
     });
