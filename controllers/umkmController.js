@@ -140,7 +140,7 @@ exports.updateUMKM = async (req, res) => {
 
 // @desc    Delete UMKM
 // @route   DELETE /api/umkm/:id
-// @access  Private (Admin)
+// @access  Private (User/Admin) - User can delete their own UMKM, Admin can delete any
 exports.deleteUMKM = async (req, res) => {
   try {
     const umkm = await UMKM.findById(req.params.id);
@@ -151,6 +151,18 @@ exports.deleteUMKM = async (req, res) => {
         message: 'UMKM tidak ditemukan'
       });
     }
+    
+    // Check authorization: User can only delete their own UMKM, Admin can delete any
+    if (req.user) {
+      // If user (not admin), check if they own this UMKM
+      if (umkm.user_id.toString() !== req.user._id.toString()) {
+        return res.status(403).json({
+          success: false,
+          message: 'Anda tidak memiliki izin untuk menghapus UMKM ini'
+        });
+      }
+    }
+    // If admin (req.admin exists), they can delete any UMKM
     
     await umkm.deleteOne();
     

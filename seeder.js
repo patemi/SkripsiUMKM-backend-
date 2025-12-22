@@ -32,14 +32,14 @@ const seedData = async () => {
       nama_user: 'Budi Santoso',
       email_user: 'budi@example.com',
       username: 'budi',
-      password_user: 'user123'
+      password_user: 'user1234'
     });
 
     const user2 = await User.create({
       nama_user: 'Siti Nurhaliza',
       email_user: 'siti@example.com',
       username: 'siti',
-      password_user: 'user123'
+      password_user: 'user1234'
     });
     console.log('✓ Users berhasil dibuat');
 
