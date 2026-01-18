@@ -33,6 +33,10 @@ const umkmSchema = new mongoose.Schema({
     type: String,
     trim: true
   },
+  lokasi: {
+    latitude: { type: Number },
+    longitude: { type: Number }
+  },
   jam_operasional: {
     senin: { type: String, default: '' },
     selasa: { type: String, default: '' },
