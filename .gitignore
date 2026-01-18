@@ -4,3 +4,9 @@ uploads/*
 !uploads/.gitkeep
 *.log
 .DS_Store
+
+# Meilisearch - download separately in production
+meilisearch.exe
+meilisearch
+data.ms/
+meili_data/
