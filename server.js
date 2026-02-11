@@ -45,6 +45,9 @@ initializeMeilisearch().then(async (success) => {
 
 const app = express();
 
+// Trust reverse proxy (Nginx) so rate limiter can read X-Forwarded-For safely
+app.set('trust proxy', 1);
+
 // Security Middleware
 app.use(helmet({
   crossOriginResourcePolicy: { policy: "cross-origin" } // Allow image loading from different origins
