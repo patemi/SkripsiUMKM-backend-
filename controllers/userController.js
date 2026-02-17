@@ -511,9 +511,9 @@ exports.googleAuthCallback = async (req, res) => {
     // Generate JWT token
     const token = generateToken(user._id, 'user');
 
-    // Redirect ke frontend dengan token
+    // Redirect ke frontend dengan token (gunakan path NON-API agar tidak tertabrak reverse proxy /api -> backend)
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
-    res.redirect(`${frontendUrl}/api/auth/google/callback?token=${token}&userId=${user._id}&name=${encodeURIComponent(user.nama_user)}&email=${encodeURIComponent(user.email_user)}`);
+    res.redirect(`${frontendUrl}/user/auth/google/callback?token=${token}&userId=${user._id}&name=${encodeURIComponent(user.nama_user)}&email=${encodeURIComponent(user.email_user)}`);
   } catch (error) {
     console.error('Google auth callback error:', error);
     res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/user/login?error=auth_failed`);
