@@ -2,6 +2,7 @@ const UMKM = require('../models/Umkm');
 const ActivityLog = require('../models/ActivityLog');
 const { searchUMKM, indexUMKM, updateUMKMIndex, deleteUMKMIndex } = require('../services/searchService');
 const https = require('https');
+const http = require('http');
 
 // Helper function to resolve Google Maps shortlinks and extract coordinates
 const extractCoordinatesFromUrl = async (mapsUrl) => {
@@ -10,16 +11,26 @@ const extractCoordinatesFromUrl = async (mapsUrl) => {
   try {
     // First try direct extraction
     const patterns = [
-      /@(-?\d+\.\d+),(-?\d+\.\d+)/, // @lat,lng format
-      /q=(-?\d+\.\d+),(-?\d+\.\d+)/, // q=lat,lng format
-      /ll=(-?\d+\.\d+),(-?\d+\.\d+)/, // ll=lat,lng format
+      /@(-?\d+\.?\d*),(-?\d+\.?\d*)/, // @lat,lng format
+      /q=(-?\d+\.?\d*),(-?\d+\.?\d*)/, // q=lat,lng format
+      /ll=(-?\d+\.?\d*),(-?\d+\.?\d*)/, // ll=lat,lng format
+      /place\/.*\/@(-?\d+\.?\d*),(-?\d+\.?\d*)/, // place/@lat,lng format
+      /!3d(-?\d+\.?\d*)!4d(-?\d+\.?\d*)/, // !3d lat !4d lng format
+      /center=(-?\d+\.?\d*),(-?\d+\.?\d*)/, // center=lat,lng format
+      /destination=(-?\d+\.?\d*),(-?\d+\.?\d*)/, // destination=lat,lng format
+      /!1d(-?\d+\.?\d*)!2d(-?\d+\.?\d*)/, // !1d lng !2d lat format (reversed)
     ];
 
     for (const pattern of patterns) {
       const match = mapsUrl.match(pattern);
       if (match) {
-        const lat = parseFloat(match[1]);
-        const lng = parseFloat(match[2]);
+        let lat = parseFloat(match[1]);
+        let lng = parseFloat(match[2]);
+
+        if (pattern.toString().includes('!1d')) {
+          [lat, lng] = [lng, lat];
+        }
+
         if (lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
           return { latitude: lat, longitude: lng };
         }
@@ -34,8 +45,13 @@ const extractCoordinatesFromUrl = async (mapsUrl) => {
         for (const pattern of patterns) {
           const match = expandedUrl.match(pattern);
           if (match) {
-            const lat = parseFloat(match[1]);
-            const lng = parseFloat(match[2]);
+            let lat = parseFloat(match[1]);
+            let lng = parseFloat(match[2]);
+
+            if (pattern.toString().includes('!1d')) {
+              [lat, lng] = [lng, lat];
+            }
+
             if (lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
               return { latitude: lat, longitude: lng };
             }
@@ -54,12 +70,26 @@ const extractCoordinatesFromUrl = async (mapsUrl) => {
 const resolveUrl = (shortUrl) => {
   return new Promise((resolve) => {
     try {
-      const timeout = setTimeout(() => resolve(shortUrl), 3000); // 3s timeout
-      
-      https.get(shortUrl, { maxRedirects: 10 }, (res) => {
+      const timeout = setTimeout(() => resolve(shortUrl), 5000);
+      const protocol = shortUrl.startsWith('https') ? https : http;
+
+      const req = protocol.get(shortUrl, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
+      }, (res) => {
         clearTimeout(timeout);
-        resolve(res.url || res.headers.location || shortUrl);
-      }).on('error', () => {
+        if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+          const nextUrl = res.headers.location.startsWith('http')
+            ? res.headers.location
+            : new URL(res.headers.location, shortUrl).toString();
+          return resolve(resolveUrl(nextUrl));
+        }
+
+        resolve(shortUrl);
+      });
+
+      req.on('error', () => {
         clearTimeout(timeout);
         resolve(shortUrl);
       });

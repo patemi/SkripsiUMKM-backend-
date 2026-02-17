@@ -8,7 +8,9 @@
     "dev": "nodemon server.js",
     "seed": "node seeder.js",
     "index-search": "node indexToMeilisearch.js",
-    "meilisearch": "meilisearch --master-key=MASTER_KEY_CHANGE_THIS --http-addr 127.0.0.1:7700"
+    "meilisearch": "meilisearch --master-key=MASTER_KEY_CHANGE_THIS --http-addr 127.0.0.1:7700",
+    "fix:lokasi:dry": "node fixLokasiFromMapsUrl.js --dry-run",
+    "fix:lokasi": "node fixLokasiFromMapsUrl.js"
   },
   "keywords": [
     "umkm",
