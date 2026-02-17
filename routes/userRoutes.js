@@ -33,7 +33,7 @@ router.get('/auth/google',
 router.get('/auth/google/callback',
   passport.authenticate('google', {
     session: false,
-    failureRedirect: '/user/login?error=google_auth_failed'
+    failureRedirect: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/user/login?error=google_auth_failed`
   }),
   googleAuthCallback
 );

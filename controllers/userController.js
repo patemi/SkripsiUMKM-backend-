@@ -75,6 +75,13 @@ exports.loginUser = async (req, res) => {
       });
     }
 
+    if (user.authProvider === 'google' && !user.password_user) {
+      return res.status(400).json({
+        success: false,
+        message: 'Akun ini terdaftar dengan Google. Silakan login menggunakan tombol Google.'
+      });
+    }
+
     const isMatch = await user.comparePassword(password_user);
 
     if (!isMatch) {
