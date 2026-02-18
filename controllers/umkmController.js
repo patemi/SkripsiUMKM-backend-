@@ -63,6 +63,24 @@ const hasValidLokasi = (item) => {
   return Number.isFinite(lat) && Number.isFinite(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
 };
 
+const normalizeUmkmLocation = async (item) => {
+  if (!item || hasValidLokasi(item)) {
+    return item;
+  }
+
+  const mapsValue = item.maps || item.linkMaps;
+  if (!mapsValue) {
+    return item;
+  }
+
+  const fallbackCoordinates = await extractCoordinatesFromUrl(mapsValue);
+  if (fallbackCoordinates) {
+    item.lokasi = fallbackCoordinates;
+  }
+
+  return item;
+};
+
 // Helper function to resolve Google Maps shortlinks and extract coordinates
 const extractCoordinatesFromUrl = async (mapsUrl) => {
   if (!mapsUrl) return null;
@@ -177,10 +195,14 @@ exports.getAllUMKM = async (req, res) => {
       const searchResult = await searchUMKM(search, filters);
       
       if (searchResult.success) {
+        const normalizedHits = await Promise.all(
+          searchResult.hits.map((item) => normalizeUmkmLocation({ ...item }))
+        );
+
         return res.status(200).json({
           success: true,
-          count: searchResult.hits.length,
-          data: searchResult.hits,
+          count: normalizedHits.length,
+          data: normalizedHits,
           processingTimeMs: searchResult.processingTimeMs,
           searchEngine: 'meilisearch'
         });
@@ -205,18 +227,11 @@ exports.getAllUMKM = async (req, res) => {
       .populate('user_id', 'nama_user email_user')
       .sort({ createdAt: -1 });
 
-    const normalizedUmkmList = umkmList.map((doc) => {
+    const normalizedUmkmList = await Promise.all(umkmList.map(async (doc) => {
       const item = doc.toObject();
 
-      if (!hasValidLokasi(item)) {
-        const fallbackCoordinates = extractCoordinatesSync(item.maps || item.linkMaps);
-        if (fallbackCoordinates) {
-          item.lokasi = fallbackCoordinates;
-        }
-      }
-
-      return item;
-    });
+      return normalizeUmkmLocation(item);
+    }));
     
     res.status(200).json({
       success: true,
@@ -248,9 +263,11 @@ exports.getUMKMById = async (req, res) => {
       });
     }
     
+    const normalizedUmkm = await normalizeUmkmLocation(umkm.toObject());
+
     res.status(200).json({
       success: true,
-      data: umkm
+      data: normalizedUmkm
     });
   } catch (error) {
     res.status(500).json({
