@@ -62,14 +62,14 @@ const extractCoordinates = (mapsUrl) => {
 
     // Enhanced patterns for various Google Maps URL formats
     const patterns = [
-        /@(-?\d+\.?\d*),(-?\d+\.?\d*)/,           // @lat,lng format
-        /q=(-?\d+\.?\d*),(-?\d+\.?\d*)/,          // q=lat,lng format  
-        /ll=(-?\d+\.?\d*),(-?\d+\.?\d*)/,         // ll=lat,lng format
-        /place\/.*\/@(-?\d+\.?\d*),(-?\d+\.?\d*)/, // place/@lat,lng format
-        /!3d(-?\d+\.?\d*)!4d(-?\d+\.?\d*)/,       // !3d lat !4d lng format
-        /center=(-?\d+\.?\d*),(-?\d+\.?\d*)/,     // center=lat,lng format
-        /destination=(-?\d+\.?\d*),(-?\d+\.?\d*)/, // destination=lat,lng format
-        /!1d(-?\d+\.?\d*)!2d(-?\d+\.?\d*)/,       // !1d lng !2d lat format (reversed)
+        /@([+-]?\d+\.?\d*),\+?([+-]?\d+\.?\d*)/,           // @lat,lng format
+        /q=([+-]?\d+\.?\d*),\+?([+-]?\d+\.?\d*)/,          // q=lat,lng format  
+        /ll=([+-]?\d+\.?\d*),\+?([+-]?\d+\.?\d*)/,         // ll=lat,lng format
+        /place\/.*\/@([+-]?\d+\.?\d*),\+?([+-]?\d+\.?\d*)/, // place/@lat,lng format
+        /!3d([+-]?\d+\.?\d*)!4d([+-]?\d+\.?\d*)/,       // !3d lat !4d lng format
+        /center=([+-]?\d+\.?\d*),\+?([+-]?\d+\.?\d*)/,     // center=lat,lng format
+        /destination=([+-]?\d+\.?\d*),\+?([+-]?\d+\.?\d*)/, // destination=lat,lng format
+        /!1d([+-]?\d+\.?\d*)!2d([+-]?\d+\.?\d*)/,       // !1d lng !2d lat format (reversed)
     ];
 
     for (const pattern of patterns) {
