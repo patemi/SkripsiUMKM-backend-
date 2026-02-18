@@ -35,6 +35,9 @@ const extractCoordinatesSync = (rawValue) => {
     /!3d([+-]?\d+\.?\d*)!4d([+-]?\d+\.?\d*)/,
     /center=([+-]?\d+\.?\d*),\+?([+-]?\d+\.?\d*)/,
     /destination=([+-]?\d+\.?\d*),\+?([+-]?\d+\.?\d*)/,
+    /search\/([+-]?\d+\.?\d*),\+?([+-]?\d+\.?\d*)/,
+    /saddr=([+-]?\d+\.?\d*),\+?([+-]?\d+\.?\d*)/,
+    /daddr=([+-]?\d+\.?\d*),\+?([+-]?\d+\.?\d*)/,
     /!1d([+-]?\d+\.?\d*)!2d([+-]?\d+\.?\d*)/,
   ];
 
@@ -63,12 +66,17 @@ const hasValidLokasi = (item) => {
   return Number.isFinite(lat) && Number.isFinite(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
 };
 
+const getMapsUrlValue = (source) => {
+  if (!source) return '';
+  return source.maps || source.linkMaps || source.mapUrl || source.googleMaps || '';
+};
+
 const normalizeUmkmLocation = async (item) => {
   if (!item || hasValidLokasi(item)) {
     return item;
   }
 
-  const mapsValue = item.maps || item.linkMaps;
+  const mapsValue = getMapsUrlValue(item);
   if (!mapsValue) {
     return item;
   }
@@ -89,55 +97,12 @@ const extractCoordinatesFromUrl = async (mapsUrl) => {
     const direct = extractCoordinatesSync(mapsUrl);
     if (direct) return direct;
 
-    // First try direct extraction
-    const patterns = [
-      /@([+-]?\d+\.?\d*),\+?([+-]?\d+\.?\d*)/, // @lat,lng format
-      /q=([+-]?\d+\.?\d*),\+?([+-]?\d+\.?\d*)/, // q=lat,lng format
-      /ll=([+-]?\d+\.?\d*),\+?([+-]?\d+\.?\d*)/, // ll=lat,lng format
-      /place\/.*\/@([+-]?\d+\.?\d*),\+?([+-]?\d+\.?\d*)/, // place/@lat,lng format
-      /!3d([+-]?\d+\.?\d*)!4d([+-]?\d+\.?\d*)/, // !3d lat !4d lng format
-      /center=([+-]?\d+\.?\d*),\+?([+-]?\d+\.?\d*)/, // center=lat,lng format
-      /destination=([+-]?\d+\.?\d*),\+?([+-]?\d+\.?\d*)/, // destination=lat,lng format
-      /!1d([+-]?\d+\.?\d*)!2d([+-]?\d+\.?\d*)/, // !1d lng !2d lat format (reversed)
-    ];
-
-    for (const pattern of patterns) {
-      const match = mapsUrl.match(pattern);
-      if (match) {
-        let lat = parseFloat(match[1]);
-        let lng = parseFloat(match[2]);
-
-        if (pattern.toString().includes('!1d')) {
-          [lat, lng] = [lng, lat];
-        }
-
-        if (lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
-          return { latitude: lat, longitude: lng };
-        }
-      }
-    }
-
-    // If direct extraction failed and URL is a shortlink, resolve it
-    if (mapsUrl.includes('goo.gl') || mapsUrl.includes('maps.app.goo.gl')) {
+    // Resolve any URL that potentially redirects to canonical maps URL
+    const looksLikeHttpUrl = /^https?:\/\//i.test(String(mapsUrl));
+    if (looksLikeHttpUrl) {
       const expandedUrl = await resolveUrl(mapsUrl);
-      if (expandedUrl && expandedUrl !== mapsUrl) {
-        // Try extract from expanded URL
-        for (const pattern of patterns) {
-          const match = expandedUrl.match(pattern);
-          if (match) {
-            let lat = parseFloat(match[1]);
-            let lng = parseFloat(match[2]);
-
-            if (pattern.toString().includes('!1d')) {
-              [lat, lng] = [lng, lat];
-            }
-
-            if (lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
-              return { latitude: lat, longitude: lng };
-            }
-          }
-        }
-      }
+      const fromExpanded = extractCoordinatesSync(expandedUrl);
+      if (fromExpanded) return fromExpanded;
     }
   } catch (error) {
     console.warn('⚠️ Error extracting coordinates from URL:', error.message);
@@ -297,9 +262,14 @@ exports.createUMKM = async (req, res) => {
       req.body.foto_umkm = req.files.map(file => `/uploads/${file.filename}`);
     }
     
+    const incomingMapsUrl = getMapsUrlValue(req.body);
+    if (!req.body.maps && incomingMapsUrl) {
+      req.body.maps = incomingMapsUrl;
+    }
+
     // Auto-extract lokasi from Google Maps URL if not already set
-    if (req.body.maps && (!req.body.lokasi || !req.body.lokasi.latitude)) {
-      const extractedCoords = await extractCoordinatesFromUrl(req.body.maps);
+    if (incomingMapsUrl && (!req.body.lokasi || !req.body.lokasi.latitude)) {
+      const extractedCoords = await extractCoordinatesFromUrl(incomingMapsUrl);
       if (extractedCoords) {
         req.body.lokasi = extractedCoords;
         console.log(`✅ Auto-extracted coordinates from maps URL for: ${req.body.nama_umkm}`);
@@ -346,9 +316,14 @@ exports.updateUMKM = async (req, res) => {
       req.body.foto_umkm = req.files.map(file => `/uploads/${file.filename}`);
     }
     
+    const incomingMapsUrl = getMapsUrlValue(req.body);
+    if (!req.body.maps && incomingMapsUrl) {
+      req.body.maps = incomingMapsUrl;
+    }
+
     // Auto-extract lokasi from Google Maps URL if maps changed
-    if (req.body.maps && req.body.maps !== umkm.maps) {
-      const extractedCoords = await extractCoordinatesFromUrl(req.body.maps);
+    if (incomingMapsUrl && incomingMapsUrl !== getMapsUrlValue(umkm)) {
+      const extractedCoords = await extractCoordinatesFromUrl(incomingMapsUrl);
       if (extractedCoords) {
         req.body.lokasi = extractedCoords;
         console.log(`✅ Auto-extracted coordinates from updated maps URL for: ${umkm.nama_umkm}`);

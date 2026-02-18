@@ -60,6 +60,26 @@ const resolveShortlink = (shortUrl) => {
 const extractCoordinates = (mapsUrl) => {
     if (!mapsUrl) return null;
 
+    const value = String(mapsUrl).trim();
+
+    // Direct coordinate format: "-7.5598, 110.8290"
+    const plainCoordinatePattern = /^\s*([+-]?\d+\.?\d*)\s*,\s*([+-]?\d+\.?\d*)\s*$/;
+    const plainMatch = value.match(plainCoordinatePattern);
+    if (plainMatch) {
+        const lat = parseFloat(plainMatch[1]);
+        const lng = parseFloat(plainMatch[2]);
+        if (lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+            return { latitude: lat, longitude: lng };
+        }
+    }
+
+    let decodedValue = value;
+    try {
+        decodedValue = decodeURIComponent(value);
+    } catch {
+        decodedValue = value;
+    }
+
     // Enhanced patterns for various Google Maps URL formats
     const patterns = [
         /@([+-]?\d+\.?\d*),\+?([+-]?\d+\.?\d*)/,           // @lat,lng format
@@ -69,11 +89,14 @@ const extractCoordinates = (mapsUrl) => {
         /!3d([+-]?\d+\.?\d*)!4d([+-]?\d+\.?\d*)/,       // !3d lat !4d lng format
         /center=([+-]?\d+\.?\d*),\+?([+-]?\d+\.?\d*)/,     // center=lat,lng format
         /destination=([+-]?\d+\.?\d*),\+?([+-]?\d+\.?\d*)/, // destination=lat,lng format
+        /search\/([+-]?\d+\.?\d*),\+?([+-]?\d+\.?\d*)/, // search/lat,+lng format
+        /saddr=([+-]?\d+\.?\d*),\+?([+-]?\d+\.?\d*)/, // saddr=lat,lng format
+        /daddr=([+-]?\d+\.?\d*),\+?([+-]?\d+\.?\d*)/, // daddr=lat,lng format
         /!1d([+-]?\d+\.?\d*)!2d([+-]?\d+\.?\d*)/,       // !1d lng !2d lat format (reversed)
     ];
 
     for (const pattern of patterns) {
-        const match = mapsUrl.match(pattern);
+        const match = decodedValue.match(pattern);
         if (match) {
             let lat = parseFloat(match[1]);
             let lng = parseFloat(match[2]);
