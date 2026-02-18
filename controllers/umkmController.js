@@ -4,11 +4,73 @@ const { searchUMKM, indexUMKM, updateUMKMIndex, deleteUMKMIndex } = require('../
 const https = require('https');
 const http = require('http');
 
+const extractCoordinatesSync = (rawValue) => {
+  if (!rawValue) return null;
+
+  const value = String(rawValue).trim();
+
+  // Format: "-7.512710163930591, 110.00553053769471"
+  const plainCoordinatePattern = /^\s*(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)\s*$/;
+  const plainMatch = value.match(plainCoordinatePattern);
+  if (plainMatch) {
+    const lat = parseFloat(plainMatch[1]);
+    const lng = parseFloat(plainMatch[2]);
+    if (lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+      return { latitude: lat, longitude: lng };
+    }
+  }
+
+  let decodedValue = value;
+  try {
+    decodedValue = decodeURIComponent(value);
+  } catch {
+    decodedValue = value;
+  }
+
+  const patterns = [
+    /@(-?\d+\.?\d*),(-?\d+\.?\d*)/,
+    /q=(-?\d+\.?\d*),(-?\d+\.?\d*)/,
+    /ll=(-?\d+\.?\d*),(-?\d+\.?\d*)/,
+    /place\/.*\/@(-?\d+\.?\d*),(-?\d+\.?\d*)/,
+    /!3d(-?\d+\.?\d*)!4d(-?\d+\.?\d*)/,
+    /center=(-?\d+\.?\d*),(-?\d+\.?\d*)/,
+    /destination=(-?\d+\.?\d*),(-?\d+\.?\d*)/,
+    /!1d(-?\d+\.?\d*)!2d(-?\d+\.?\d*)/,
+  ];
+
+  for (const pattern of patterns) {
+    const match = decodedValue.match(pattern);
+    if (!match) continue;
+
+    let lat = parseFloat(match[1]);
+    let lng = parseFloat(match[2]);
+
+    if (pattern.toString().includes('!1d')) {
+      [lat, lng] = [lng, lat];
+    }
+
+    if (lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+      return { latitude: lat, longitude: lng };
+    }
+  }
+
+  return null;
+};
+
+const hasValidLokasi = (item) => {
+  const lat = Number(item?.lokasi?.latitude);
+  const lng = Number(item?.lokasi?.longitude);
+  return Number.isFinite(lat) && Number.isFinite(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
+};
+
 // Helper function to resolve Google Maps shortlinks and extract coordinates
 const extractCoordinatesFromUrl = async (mapsUrl) => {
   if (!mapsUrl) return null;
 
   try {
+    const direct = extractCoordinatesSync(mapsUrl);
+    if (direct) return direct;
+
     // First try direct extraction
     const patterns = [
       /@(-?\d+\.?\d*),(-?\d+\.?\d*)/, // @lat,lng format
@@ -142,11 +204,24 @@ exports.getAllUMKM = async (req, res) => {
     const umkmList = await UMKM.find(query)
       .populate('user_id', 'nama_user email_user')
       .sort({ createdAt: -1 });
+
+    const normalizedUmkmList = umkmList.map((doc) => {
+      const item = doc.toObject();
+
+      if (!hasValidLokasi(item)) {
+        const fallbackCoordinates = extractCoordinatesSync(item.maps || item.linkMaps);
+        if (fallbackCoordinates) {
+          item.lokasi = fallbackCoordinates;
+        }
+      }
+
+      return item;
+    });
     
     res.status(200).json({
       success: true,
-      count: umkmList.length,
-      data: umkmList,
+      count: normalizedUmkmList.length,
+      data: normalizedUmkmList,
       searchEngine: 'mongodb'
     });
   } catch (error) {
