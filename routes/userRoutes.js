@@ -4,6 +4,8 @@ const passport = require('../config/passport');
 const {
   registerUser,
   loginUser,
+  verifyEmail,
+  resendVerificationCode,
   getUserProfile,
   getUserStats,
   getAllUsers,
@@ -24,6 +26,8 @@ const FRONTEND_URL = process.env.FRONTEND_URL || (process.env.NODE_ENV === 'prod
 // Public routes - dengan rate limiting untuk mencegah brute force
 router.post('/register', authLimiter, registerUser);
 router.post('/login', authLimiter, loginUser);
+router.post('/verify-email', authLimiter, verifyEmail);
+router.post('/resend-verification-code', authLimiter, resendVerificationCode);
 
 // Password reset routes
 router.post('/forgot-password', forgotPasswordLimiter, forgotPassword);

@@ -1,6 +1,8 @@
 const User = require('../models/User');
 const UMKM = require('../models/Umkm');
+const crypto = require('crypto');
 const { generateToken } = require('../middleware/auth');
+const { isEmailConfigured, sendPasswordResetEmail, sendEmailVerificationCode } = require('../services/emailService');
 
 const FRONTEND_URL = process.env.FRONTEND_URL || (process.env.NODE_ENV === 'production'
   ? 'https://soraumkm.biz.id'
@@ -12,38 +14,107 @@ const FRONTEND_URL = process.env.FRONTEND_URL || (process.env.NODE_ENV === 'prod
 exports.registerUser = async (req, res) => {
   try {
     const { nama_user, email_user, username, password_user } = req.body;
+    const normalizedEmail = email_user?.toLowerCase()?.trim();
+    const normalizedUsername = username?.toLowerCase()?.trim();
 
-    // Check if user exists
-    const userExists = await User.findOne({
-      $or: [{ email_user }, { username }]
-    });
-
-    if (userExists) {
+    if (!nama_user || !normalizedEmail || !normalizedUsername || !password_user) {
       return res.status(400).json({
         success: false,
-        message: 'Email atau username sudah digunakan'
+        message: 'Nama, email, username, dan password harus diisi'
       });
     }
 
-    const user = await User.create({
-      nama_user,
-      email_user,
-      username,
-      password_user
+    if (password_user.length < 8) {
+      return res.status(400).json({
+        success: false,
+        message: 'Password minimal 8 karakter'
+      });
+    }
+
+    // Check if user exists by email or username
+    const existingUser = await User.findOne({
+      $or: [{ email_user: normalizedEmail }, { username: normalizedUsername }]
     });
 
-    const token = generateToken(user._id, 'user');
+    let user;
+
+    if (existingUser) {
+      // Jika akun local belum verifikasi dengan email yang sama, update data dan kirim ulang kode verifikasi
+      if (existingUser.email_user === normalizedEmail && !existingUser.isEmailVerified && existingUser.authProvider === 'local') {
+        existingUser.nama_user = nama_user;
+        existingUser.username = normalizedUsername;
+        existingUser.password_user = password_user;
+        user = existingUser;
+      } else {
+        return res.status(400).json({
+          success: false,
+          message: 'Email atau username sudah digunakan'
+        });
+      }
+    } else {
+      user = new User({
+        nama_user,
+        email_user: normalizedEmail,
+        username: normalizedUsername,
+        password_user,
+        authProvider: 'local',
+        isEmailVerified: false
+      });
+    }
+
+    const verificationCode = user.generateEmailVerificationCode();
+
+    await user.save();
+
+    if (!isEmailConfigured()) {
+      if (process.env.NODE_ENV === 'production') {
+        user.emailVerificationCode = undefined;
+        user.emailVerificationExpires = undefined;
+        await user.save({ validateBeforeSave: false });
+
+        return res.status(500).json({
+          success: false,
+          message: 'Layanan email belum dikonfigurasi. Hubungi admin sistem.'
+        });
+      }
+
+      console.log('=================================');
+      console.log('📩 EMAIL VERIFICATION CODE (DEV MODE)');
+      console.log('Email:', user.email_user);
+      console.log('Code:', verificationCode);
+      console.log('=================================');
+    } else {
+      try {
+        await sendEmailVerificationCode({
+          to: user.email_user,
+          name: user.nama_user,
+          code: verificationCode,
+        });
+      } catch (mailError) {
+        console.error('Failed sending verification email:', mailError.message);
+
+        user.emailVerificationCode = undefined;
+        user.emailVerificationExpires = undefined;
+        await user.save({ validateBeforeSave: false });
+
+        return res.status(500).json({
+          success: false,
+          message: 'Gagal mengirim kode verifikasi. Silakan coba beberapa saat lagi.'
+        });
+      }
+    }
 
     res.status(201).json({
       success: true,
-      message: 'User berhasil didaftarkan',
+      message: 'Registrasi berhasil. Kode verifikasi telah dikirim ke email Anda.',
       data: {
         id: user._id,
         nama_user: user.nama_user,
         email_user: user.email_user,
         username: user.username
       },
-      token
+      requiresEmailVerification: true,
+      ...(process.env.NODE_ENV === 'development' && { verificationCode })
     });
   } catch (error) {
     res.status(400).json({
@@ -86,6 +157,15 @@ exports.loginUser = async (req, res) => {
       });
     }
 
+    if (user.authProvider === 'local' && !user.isEmailVerified) {
+      return res.status(403).json({
+        success: false,
+        message: 'Email belum diverifikasi. Silakan cek email Anda dan masukkan kode verifikasi terlebih dahulu.',
+        requiresEmailVerification: true,
+        email: user.email_user
+      });
+    }
+
     const isMatch = await user.comparePassword(password_user);
 
     if (!isMatch) {
@@ -119,6 +199,163 @@ exports.loginUser = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Gagal login',
+      error: error.message
+    });
+  }
+};
+
+// @desc    Verify user email with code
+// @route   POST /api/user/verify-email
+// @access  Public
+exports.verifyEmail = async (req, res) => {
+  try {
+    const { email, code } = req.body;
+
+    if (!email || !code) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email dan kode verifikasi harus diisi'
+      });
+    }
+
+    const normalizedEmail = email.toLowerCase().trim();
+    const hashedCode = crypto
+      .createHash('sha256')
+      .update(String(code).trim())
+      .digest('hex');
+
+    const user = await User.findOne({
+      email_user: normalizedEmail,
+      authProvider: 'local'
+    }).select('+emailVerificationCode +emailVerificationExpires');
+
+    if (!user) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email atau kode verifikasi tidak valid'
+      });
+    }
+
+    if (user.isEmailVerified) {
+      return res.status(200).json({
+        success: true,
+        message: 'Email sudah terverifikasi. Silakan login.'
+      });
+    }
+
+    if (
+      !user.emailVerificationCode ||
+      !user.emailVerificationExpires ||
+      user.emailVerificationExpires < Date.now() ||
+      user.emailVerificationCode !== hashedCode
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: 'Kode verifikasi tidak valid atau sudah kadaluarsa'
+      });
+    }
+
+    user.isEmailVerified = true;
+    user.emailVerificationCode = undefined;
+    user.emailVerificationExpires = undefined;
+    await user.save({ validateBeforeSave: false });
+
+    res.status(200).json({
+      success: true,
+      message: 'Email berhasil diverifikasi. Silakan login.'
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Gagal memverifikasi email',
+      error: error.message
+    });
+  }
+};
+
+// @desc    Resend email verification code
+// @route   POST /api/user/resend-verification-code
+// @access  Public
+exports.resendVerificationCode = async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email harus diisi'
+      });
+    }
+
+    const normalizedEmail = email.toLowerCase().trim();
+
+    const user = await User.findOne({
+      email_user: normalizedEmail,
+      authProvider: 'local'
+    }).select('+emailVerificationCode +emailVerificationExpires');
+
+    if (!user) {
+      return res.status(200).json({
+        success: true,
+        message: 'Jika email terdaftar, kode verifikasi akan dikirim'
+      });
+    }
+
+    if (user.isEmailVerified) {
+      return res.status(200).json({
+        success: true,
+        message: 'Email sudah terverifikasi. Silakan login.'
+      });
+    }
+
+    const verificationCode = user.generateEmailVerificationCode();
+    await user.save({ validateBeforeSave: false });
+
+    if (!isEmailConfigured()) {
+      if (process.env.NODE_ENV === 'production') {
+        user.emailVerificationCode = undefined;
+        user.emailVerificationExpires = undefined;
+        await user.save({ validateBeforeSave: false });
+
+        return res.status(500).json({
+          success: false,
+          message: 'Layanan email belum dikonfigurasi. Hubungi admin sistem.'
+        });
+      }
+
+      console.log('=================================');
+      console.log('📩 RESEND VERIFICATION CODE (DEV MODE)');
+      console.log('Email:', normalizedEmail);
+      console.log('Code:', verificationCode);
+      console.log('=================================');
+    } else {
+      try {
+        await sendEmailVerificationCode({
+          to: user.email_user,
+          name: user.nama_user,
+          code: verificationCode,
+        });
+      } catch (mailError) {
+        user.emailVerificationCode = undefined;
+        user.emailVerificationExpires = undefined;
+        await user.save({ validateBeforeSave: false });
+
+        return res.status(500).json({
+          success: false,
+          message: 'Gagal mengirim ulang kode verifikasi. Silakan coba lagi.'
+        });
+      }
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Kode verifikasi telah dikirim ke email Anda.',
+      ...(process.env.NODE_ENV === 'development' && { verificationCode })
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Gagal mengirim ulang kode verifikasi',
       error: error.message
     });
   }
@@ -420,17 +657,45 @@ exports.forgotPassword = async (req, res) => {
     // Buat reset URL
     const resetUrl = `${FRONTEND_URL}/user/reset-password?token=${resetToken}`;
 
-    // Log token untuk development (production harus kirim email)
-    console.log('=================================');
-    console.log('🔑 PASSWORD RESET TOKEN');
-    console.log('Email:', email);
-    console.log('Token:', resetToken);
-    console.log('Reset URL:', resetUrl);
-    console.log('Expires in 30 minutes');
-    console.log('=================================');
+    if (!isEmailConfigured()) {
+      if (process.env.NODE_ENV === 'production') {
+        user.resetPasswordToken = undefined;
+        user.resetPasswordExpires = undefined;
+        await user.save({ validateBeforeSave: false });
 
-    // TODO: Implementasi pengiriman email dengan nodemailer
-    // Untuk sekarang, token di-log ke console
+        return res.status(500).json({
+          success: false,
+          message: 'Layanan email belum dikonfigurasi. Hubungi admin sistem.'
+        });
+      }
+
+      console.log('=================================');
+      console.log('🔑 PASSWORD RESET TOKEN (DEV MODE)');
+      console.log('Email:', email);
+      console.log('Token:', resetToken);
+      console.log('Reset URL:', resetUrl);
+      console.log('Expires in 30 minutes');
+      console.log('=================================');
+    } else {
+      try {
+        await sendPasswordResetEmail({
+          to: user.email_user,
+          name: user.nama_user,
+          resetUrl,
+        });
+      } catch (mailError) {
+        console.error('Failed sending reset password email:', mailError.message);
+
+        user.resetPasswordToken = undefined;
+        user.resetPasswordExpires = undefined;
+        await user.save({ validateBeforeSave: false });
+
+        return res.status(500).json({
+          success: false,
+          message: 'Gagal mengirim email reset password. Silakan coba beberapa saat lagi.'
+        });
+      }
+    }
 
     res.status(200).json({
       success: true,

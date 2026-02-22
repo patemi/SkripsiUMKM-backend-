@@ -49,6 +49,14 @@ const userSchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
+  emailVerificationCode: {
+    type: String,
+    select: false
+  },
+  emailVerificationExpires: {
+    type: Date,
+    select: false
+  },
   profilePicture: {
     type: String,
     default: ''
@@ -102,6 +110,20 @@ userSchema.methods.generateResetToken = function () {
   this.resetPasswordExpires = Date.now() + 30 * 60 * 1000; // 30 menit
 
   return resetToken;
+};
+
+// Method untuk generate email verification code (6 digit)
+userSchema.methods.generateEmailVerificationCode = function () {
+  const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
+
+  this.emailVerificationCode = crypto
+    .createHash('sha256')
+    .update(verificationCode)
+    .digest('hex');
+
+  this.emailVerificationExpires = Date.now() + 15 * 60 * 1000; // 15 menit
+
+  return verificationCode;
 };
 
 module.exports = mongoose.model('User', userSchema);
