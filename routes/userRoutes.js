@@ -17,6 +17,10 @@ const {
 const { protect, adminOnly } = require('../middleware/auth');
 const { authLimiter, forgotPasswordLimiter } = require('../middleware/rateLimit');
 
+const FRONTEND_URL = process.env.FRONTEND_URL || (process.env.NODE_ENV === 'production'
+  ? 'https://soraumkm.biz.id'
+  : 'http://localhost:3000');
+
 // Public routes - dengan rate limiting untuk mencegah brute force
 router.post('/register', authLimiter, registerUser);
 router.post('/login', authLimiter, loginUser);
@@ -33,7 +37,7 @@ router.get('/auth/google',
 router.get('/auth/google/callback',
   passport.authenticate('google', {
     session: false,
-    failureRedirect: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/user/login?error=google_auth_failed`
+    failureRedirect: `${FRONTEND_URL}/user/login?error=google_auth_failed`
   }),
   googleAuthCallback
 );

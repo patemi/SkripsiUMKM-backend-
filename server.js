@@ -45,6 +45,10 @@ initializeMeilisearch().then(async (success) => {
 
 const app = express();
 
+const FRONTEND_URL = process.env.FRONTEND_URL || (process.env.NODE_ENV === 'production'
+  ? 'https://soraumkm.biz.id'
+  : 'http://localhost:3000');
+
 // Trust reverse proxy (Nginx) so rate limiter can read X-Forwarded-For safely
 app.set('trust proxy', 1);
 
@@ -53,7 +57,7 @@ app.use(helmet({
   crossOriginResourcePolicy: { policy: "cross-origin" } // Allow image loading from different origins
 }));
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+  origin: FRONTEND_URL,
   credentials: true // Enable cookies
 }));
 app.use(cookieParser());

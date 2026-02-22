@@ -2,6 +2,10 @@ const User = require('../models/User');
 const UMKM = require('../models/Umkm');
 const { generateToken } = require('../middleware/auth');
 
+const FRONTEND_URL = process.env.FRONTEND_URL || (process.env.NODE_ENV === 'production'
+  ? 'https://soraumkm.biz.id'
+  : 'http://localhost:3000');
+
 // @desc    Register user
 // @route   POST /api/user/register
 // @access  Public
@@ -414,7 +418,7 @@ exports.forgotPassword = async (req, res) => {
     await user.save({ validateBeforeSave: false });
 
     // Buat reset URL
-    const resetUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/user/reset-password?token=${resetToken}`;
+    const resetUrl = `${FRONTEND_URL}/user/reset-password?token=${resetToken}`;
 
     // Log token untuk development (production harus kirim email)
     console.log('=================================');
@@ -512,17 +516,17 @@ exports.googleAuthCallback = async (req, res) => {
     const user = req.user;
 
     if (!user) {
-      return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/user/login?error=auth_failed`);
+      return res.redirect(`${FRONTEND_URL}/user/login?error=auth_failed`);
     }
 
     // Generate JWT token
     const token = generateToken(user._id, 'user');
 
     // Redirect ke frontend dengan token (gunakan path NON-API agar tidak tertabrak reverse proxy /api -> backend)
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+    const frontendUrl = FRONTEND_URL;
     res.redirect(`${frontendUrl}/user/auth/google/callback?token=${token}&userId=${user._id}&name=${encodeURIComponent(user.nama_user)}&email=${encodeURIComponent(user.email_user)}`);
   } catch (error) {
     console.error('Google auth callback error:', error);
-    res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/user/login?error=auth_failed`);
+    res.redirect(`${FRONTEND_URL}/user/login?error=auth_failed`);
   }
 };
