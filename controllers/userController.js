@@ -512,36 +512,57 @@ exports.updateActivity = async (req, res) => {
 // @access  Private (User)
 exports.updateUserProfile = async (req, res) => {
   try {
-    const { nama_user, email_user } = req.body;
+    const { nama_user, email_user, username } = req.body;
+
+    const normalizedEmail = email_user?.toLowerCase().trim();
+    const normalizedUsername = username?.toLowerCase().trim();
 
     // Validation
-    if (!nama_user || !email_user) {
+    if (!nama_user || !normalizedEmail || !normalizedUsername) {
       return res.status(400).json({
         success: false,
-        message: 'Nama dan email harus diisi'
+        message: 'Nama, email, dan username harus diisi'
+      });
+    }
+
+    if (!/^[a-zA-Z0-9_]+$/.test(normalizedUsername)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Username hanya boleh berisi huruf, angka, dan underscore'
       });
     }
 
     // Check if email already exists (excluding current user)
-    if (email_user) {
-      const existingUser = await User.findOne({
-        email_user: email_user.toLowerCase(),
-        _id: { $ne: req.user._id }
-      });
+    const existingEmailUser = await User.findOne({
+      email_user: normalizedEmail,
+      _id: { $ne: req.user._id }
+    });
 
-      if (existingUser) {
-        return res.status(400).json({
-          success: false,
-          message: 'Email sudah terdaftar'
-        });
-      }
+    if (existingEmailUser) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email sudah terdaftar'
+      });
+    }
+
+    const existingUsernameUser = await User.findOne({
+      username: normalizedUsername,
+      _id: { $ne: req.user._id }
+    });
+
+    if (existingUsernameUser) {
+      return res.status(400).json({
+        success: false,
+        message: 'Username sudah digunakan. Silakan pilih username lain.'
+      });
     }
 
     const user = await User.findByIdAndUpdate(
       req.user._id,
       {
         nama_user: nama_user.trim(),
-        email_user: email_user.toLowerCase().trim()
+        email_user: normalizedEmail,
+        username: normalizedUsername
       },
       { new: true, runValidators: true }
     );
@@ -795,7 +816,7 @@ exports.googleAuthCallback = async (req, res) => {
 
     // Redirect ke frontend dengan token (gunakan path NON-API agar tidak tertabrak reverse proxy /api -> backend)
     const frontendUrl = FRONTEND_URL;
-    res.redirect(`${frontendUrl}/user/auth/google/callback?token=${token}&userId=${user._id}&name=${encodeURIComponent(user.nama_user)}&email=${encodeURIComponent(user.email_user)}`);
+    res.redirect(`${frontendUrl}/user/auth/google/callback?token=${token}&userId=${user._id}&name=${encodeURIComponent(user.nama_user)}&email=${encodeURIComponent(user.email_user)}&username=${encodeURIComponent(user.username || '')}`);
   } catch (error) {
     console.error('Google auth callback error:', error);
     res.redirect(`${FRONTEND_URL}/user/login?error=auth_failed`);
