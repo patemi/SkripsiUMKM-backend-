@@ -141,7 +141,7 @@ exports.loginUser = async (req, res) => {
 
     const user = await User.findOne({
       $or: [{ username }, { email_user: username }]
-    }).select('+password_user');
+    }).select('+password_user +emailVerificationCode +emailVerificationExpires');
 
     if (!user) {
       return res.status(401).json({
@@ -157,13 +157,19 @@ exports.loginUser = async (req, res) => {
       });
     }
 
-    if (user.authProvider === 'local' && !user.isEmailVerified) {
+    if (user.authProvider === 'local' && !user.isEmailVerified && user.emailVerificationCode) {
       return res.status(403).json({
         success: false,
         message: 'Email belum diverifikasi. Silakan cek email Anda dan masukkan kode verifikasi terlebih dahulu.',
         requiresEmailVerification: true,
         email: user.email_user
       });
+    }
+
+    // Backward compatibility: akun lama sebelum fitur verifikasi email tidak perlu diminta kode
+    if (user.authProvider === 'local' && !user.isEmailVerified && !user.emailVerificationCode) {
+      user.isEmailVerified = true;
+      user.emailVerificationExpires = undefined;
     }
 
     const isMatch = await user.comparePassword(password_user);
