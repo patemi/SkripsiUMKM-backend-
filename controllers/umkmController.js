@@ -217,10 +217,10 @@ exports.getAllUMKM = async (req, res) => {
 
       if (!includeAllPhotos) {
         const fotoList = Array.isArray(normalizedItem.foto_umkm) ? normalizedItem.foto_umkm : [];
-        const firstNonBase64Photo = fotoList.find(
-          (foto) => typeof foto === 'string' && foto.trim() && !foto.startsWith('data:image')
+        const firstPhoto = fotoList.find(
+          (foto) => typeof foto === 'string' && foto.trim()
         );
-        normalizedItem.foto_umkm = firstNonBase64Photo ? [firstNonBase64Photo] : [];
+        normalizedItem.foto_umkm = firstPhoto ? [firstPhoto] : [];
       }
 
       if (!hasValidLokasi(normalizedItem)) {
@@ -543,10 +543,10 @@ exports.getTopUMKM = async (req, res) => {
     const normalizedTopUMKM = topUMKM.map((item) => {
       const normalizedItem = { ...item };
       const fotoList = Array.isArray(normalizedItem.foto_umkm) ? normalizedItem.foto_umkm : [];
-      const firstNonBase64Photo = fotoList.find(
-        (foto) => typeof foto === 'string' && foto.trim() && !foto.startsWith('data:image')
+      const firstPhoto = fotoList.find(
+        (foto) => typeof foto === 'string' && foto.trim()
       );
-      normalizedItem.foto_umkm = firstNonBase64Photo ? [firstNonBase64Photo] : [];
+      normalizedItem.foto_umkm = firstPhoto ? [firstPhoto] : [];
 
       if (!hasValidLokasi(normalizedItem)) {
         const fallbackCoordinates = extractCoordinatesSync(normalizedItem.maps || '');
