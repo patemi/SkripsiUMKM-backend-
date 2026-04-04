@@ -205,35 +205,20 @@ exports.getAllUMKM = async (req, res) => {
       .populate('user_id', 'nama_user email_user')
       .sort({ createdAt: -1 });
 
-    const normalizedUmkmList = await Promise.all(
-      umkmList.map(async (doc) => {
-        const item = doc.toObject();
+    const normalizedUmkmList = umkmList.map((doc) => {
+      const item = doc.toObject();
 
-        if (!hasValidLokasi(item)) {
-          const mapsValue = item.maps || item.linkMaps || '';
-          let fallbackCoordinates = extractCoordinatesSync(mapsValue);
+      if (!hasValidLokasi(item)) {
+        const mapsValue = item.maps || item.linkMaps || '';
+        const fallbackCoordinates = extractCoordinatesSync(mapsValue);
 
-          if (!fallbackCoordinates && mapsValue) {
-            fallbackCoordinates = await extractCoordinatesFromUrl(mapsValue);
-          }
-
-          if (fallbackCoordinates) {
-            item.lokasi = fallbackCoordinates;
-
-            // Persist recovered coordinates so next requests are faster.
-            try {
-              await UMKM.findByIdAndUpdate(item._id, {
-                lokasi: fallbackCoordinates,
-              });
-            } catch (persistError) {
-              console.warn(`⚠️ Failed to persist lokasi for UMKM ${item._id}:`, persistError.message);
-            }
-          }
+        if (fallbackCoordinates) {
+          item.lokasi = fallbackCoordinates;
         }
+      }
 
-        return item;
-      })
-    );
+      return item;
+    });
     
     res.status(200).json({
       success: true,
