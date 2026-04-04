@@ -167,6 +167,11 @@ const resolveUrl = (shortUrl) => {
 exports.getAllUMKM = async (req, res) => {
   try {
     const { status, kategori, search } = req.query;
+    const parsedLimit = Number.parseInt(req.query.limit, 10);
+    const limit = Number.isFinite(parsedLimit) && parsedLimit > 0
+      ? Math.min(parsedLimit, 500)
+      : 300;
+    const includeAllPhotos = req.query.includeAllPhotos === 'true';
     
     // Use Meilisearch if there's a search query
     if (search && search.trim() !== '') {
@@ -203,21 +208,31 @@ exports.getAllUMKM = async (req, res) => {
     
     const umkmList = await UMKM.find(query)
       .populate('user_id', 'nama_user email_user')
-      .sort({ createdAt: -1 });
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .lean();
 
-    const normalizedUmkmList = umkmList.map((doc) => {
-      const item = doc.toObject();
+    const normalizedUmkmList = umkmList.map((item) => {
+      const normalizedItem = { ...item };
 
-      if (!hasValidLokasi(item)) {
-        const mapsValue = item.maps || item.linkMaps || '';
+      if (!includeAllPhotos) {
+        const fotoList = Array.isArray(normalizedItem.foto_umkm) ? normalizedItem.foto_umkm : [];
+        const firstNonBase64Photo = fotoList.find(
+          (foto) => typeof foto === 'string' && foto.trim() && !foto.startsWith('data:image')
+        );
+        normalizedItem.foto_umkm = firstNonBase64Photo ? [firstNonBase64Photo] : [];
+      }
+
+      if (!hasValidLokasi(normalizedItem)) {
+        const mapsValue = normalizedItem.maps || normalizedItem.linkMaps || '';
         const fallbackCoordinates = extractCoordinatesSync(mapsValue);
 
         if (fallbackCoordinates) {
-          item.lokasi = fallbackCoordinates;
+          normalizedItem.lokasi = fallbackCoordinates;
         }
       }
 
-      return item;
+      return normalizedItem;
     });
     
     res.status(200).json({
@@ -520,13 +535,33 @@ exports.getTopUMKM = async (req, res) => {
     const limit = parseInt(req.query.limit) || 5;
     
     const topUMKM = await UMKM.find({ status: 'approved' })
+      .select('nama_umkm kategori deskripsi alamat maps lokasi views foto_umkm jam_operasional kontak')
       .sort({ views: -1 })
-      .limit(limit);
+      .limit(limit)
+      .lean();
+
+    const normalizedTopUMKM = topUMKM.map((item) => {
+      const normalizedItem = { ...item };
+      const fotoList = Array.isArray(normalizedItem.foto_umkm) ? normalizedItem.foto_umkm : [];
+      const firstNonBase64Photo = fotoList.find(
+        (foto) => typeof foto === 'string' && foto.trim() && !foto.startsWith('data:image')
+      );
+      normalizedItem.foto_umkm = firstNonBase64Photo ? [firstNonBase64Photo] : [];
+
+      if (!hasValidLokasi(normalizedItem)) {
+        const fallbackCoordinates = extractCoordinatesSync(normalizedItem.maps || '');
+        if (fallbackCoordinates) {
+          normalizedItem.lokasi = fallbackCoordinates;
+        }
+      }
+
+      return normalizedItem;
+    });
     
     res.status(200).json({
       success: true,
-      count: topUMKM.length,
-      data: topUMKM
+      count: normalizedTopUMKM.length,
+      data: normalizedTopUMKM
     });
   } catch (error) {
     res.status(500).json({
