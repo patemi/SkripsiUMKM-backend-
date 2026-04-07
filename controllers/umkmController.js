@@ -161,6 +161,69 @@ const resolveUrl = (shortUrl) => {
   });
 };
 
+const hasOwn = (obj, key) => Object.prototype.hasOwnProperty.call(obj, key);
+
+const parseArrayField = (value, fieldName) => {
+  if (Array.isArray(value)) return value;
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== 'string') {
+    throw new Error(`Format ${fieldName} tidak valid`);
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) return [];
+
+  if (trimmed.startsWith('[')) {
+    const parsed = JSON.parse(trimmed);
+    if (!Array.isArray(parsed)) {
+      throw new Error(`Format ${fieldName} tidak valid`);
+    }
+    return parsed;
+  }
+
+  return [trimmed];
+};
+
+const parseObjectField = (value, fieldName) => {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value === 'object' && !Array.isArray(value)) return value;
+  if (typeof value !== 'string') {
+    throw new Error(`Format ${fieldName} tidak valid`);
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) return {};
+
+  const parsed = JSON.parse(trimmed);
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error(`Format ${fieldName} tidak valid`);
+  }
+
+  return parsed;
+};
+
+const normalizeUmkmPayload = (payload = {}) => {
+  const normalized = { ...payload };
+
+  if (hasOwn(payload, 'pembayaran')) {
+    normalized.pembayaran = parseArrayField(payload.pembayaran, 'pembayaran');
+  }
+
+  if (hasOwn(payload, 'jam_operasional')) {
+    normalized.jam_operasional = parseObjectField(payload.jam_operasional, 'jam_operasional');
+  }
+
+  if (hasOwn(payload, 'kontak')) {
+    normalized.kontak = parseObjectField(payload.kontak, 'kontak');
+  }
+
+  if (hasOwn(payload, 'lokasi')) {
+    normalized.lokasi = parseObjectField(payload.lokasi, 'lokasi');
+  }
+
+  return normalized;
+};
+
 // @desc    Get all UMKM
 // @route   GET /api/umkm
 // @access  Public
@@ -296,6 +359,8 @@ exports.createUMKM = async (req, res) => {
     if (req.files && req.files.length > 0) {
       req.body.foto_umkm = req.files.map(file => `/uploads/${file.filename}`);
     }
+
+    req.body = normalizeUmkmPayload(req.body);
     
     // Auto-extract lokasi from Google Maps URL if not already set
     if (req.body.maps && (!req.body.lokasi || !req.body.lokasi.latitude)) {
@@ -345,6 +410,8 @@ exports.updateUMKM = async (req, res) => {
     if (req.files && req.files.length > 0) {
       req.body.foto_umkm = req.files.map(file => `/uploads/${file.filename}`);
     }
+
+    req.body = normalizeUmkmPayload(req.body);
     
     // Auto-extract lokasi from Google Maps URL if maps changed
     if (req.body.maps && req.body.maps !== umkm.maps) {
