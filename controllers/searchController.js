@@ -1,5 +1,74 @@
-const { searchUMKM, indexAllUMKM, getSearchStats, isMeilisearchAvailable } = require('../services/searchService');
+const { searchUMKM, indexAllUMKM, getSearchStats } = require('../services/searchService');
+const { getAISearchSuggestion } = require('../services/aiSearchService');
 const UMKM = require('../models/Umkm');
+
+const normalizeQueryText = (value) => String(value || '').trim();
+
+const isDifferentQuery = (left, right) => normalizeQueryText(left).toLowerCase() !== normalizeQueryText(right).toLowerCase();
+
+const buildMongoQuery = (queryText, filters) => {
+  const mongoQuery = { status: filters.status || 'approved' };
+
+  if (queryText) {
+    const searchRegex = new RegExp(queryText, 'i');
+    mongoQuery.$or = [
+      { nama_umkm: searchRegex },
+      { deskripsi: searchRegex },
+      { alamat: searchRegex }
+    ];
+  }
+
+  if (filters.kategori) {
+    mongoQuery.kategori = filters.kategori;
+  }
+
+  return mongoQuery;
+};
+
+const runMongoSearch = async ({ queryText, filters, itemsPerPage, offset }) => {
+  const mongoQuery = buildMongoQuery(queryText, filters);
+
+  const totalItems = await UMKM.countDocuments(mongoQuery);
+  const totalPages = Math.ceil(totalItems / itemsPerPage);
+
+  const hits = await UMKM.find(mongoQuery)
+    .limit(itemsPerPage)
+    .skip(offset)
+    .sort({ views: -1, createdAt: -1 });
+
+  return {
+    engine: 'mongodb',
+    hits,
+    totalItems,
+    totalPages,
+    totalHits: totalItems
+  };
+};
+
+const runHybridSearch = async ({ queryText, filters, itemsPerPage, offset }) => {
+  const meiliResult = await searchUMKM(queryText || '', filters);
+
+  if (meiliResult.success) {
+    const totalItems = meiliResult.estimatedTotalHits || meiliResult.hits.length;
+    const totalPages = Math.ceil(totalItems / itemsPerPage);
+
+    return {
+      engine: 'meilisearch',
+      hits: meiliResult.hits,
+      totalItems,
+      totalPages,
+      totalHits: totalItems,
+      processingTimeMs: meiliResult.processingTimeMs
+    };
+  }
+
+  if (meiliResult.fallback) {
+    console.log('Meilisearch tidak tersedia, menggunakan MongoDB search');
+    return runMongoSearch({ queryText, filters, itemsPerPage, offset });
+  }
+
+  throw new Error(meiliResult.error || 'Pencarian gagal');
+};
 
 // @desc    Search UMKM using Meilisearch with MongoDB fallback
 // @route   GET /api/search
@@ -7,10 +76,11 @@ const UMKM = require('../models/Umkm');
 exports.searchUMKMAdvanced = async (req, res) => {
   try {
     const { q, kategori, status, limit, page, sort } = req.query;
+    const rawQuery = normalizeQueryText(q);
 
     // Pagination settings - default 10 per page
-    const itemsPerPage = parseInt(limit) || 10;
-    const currentPage = parseInt(page) || 1;
+    const itemsPerPage = Math.min(parseInt(limit, 10) || 10, 50);
+    const currentPage = parseInt(page, 10) || 1;
     const offset = (currentPage - 1) * itemsPerPage;
 
     // Build filters
@@ -26,75 +96,71 @@ exports.searchUMKMAdvanced = async (req, res) => {
       filters.status = 'approved';
     }
 
-    // Try Meilisearch first
-    const result = await searchUMKM(q || '', filters);
+    const primarySearch = await runHybridSearch({
+      queryText: rawQuery,
+      filters,
+      itemsPerPage,
+      offset
+    });
 
-    if (result.success) {
-      const totalItems = result.estimatedTotalHits || result.hits.length;
-      const totalPages = Math.ceil(totalItems / itemsPerPage);
+    let finalSearch = primarySearch;
+    let aiSearch = null;
+    let usedCorrectedQuery = false;
 
-      res.status(200).json({
-        success: true,
-        query: result.query,
-        count: result.hits.length,
-        data: result.hits,
-        searchEngine: 'meilisearch',
-        pagination: {
-          currentPage: currentPage,
-          itemsPerPage: itemsPerPage,
-          totalItems: totalItems,
-          totalPages: totalPages,
-          hasNextPage: currentPage < totalPages,
-          hasPrevPage: currentPage > 1
+    const shouldUseAi = rawQuery.length >= 2 && primarySearch.hits.length <= 3;
+    if (shouldUseAi) {
+      aiSearch = await getAISearchSuggestion(rawQuery, { limit: 5 });
+
+      if (aiSearch.didYouMean && isDifferentQuery(aiSearch.didYouMean, rawQuery)) {
+        const correctedSearch = await runHybridSearch({
+          queryText: aiSearch.didYouMean,
+          filters,
+          itemsPerPage,
+          offset
+        });
+
+        if (primarySearch.hits.length === 0 && correctedSearch.hits.length > 0) {
+          finalSearch = correctedSearch;
+          usedCorrectedQuery = true;
         }
-      });
-    } else if (result.fallback) {
-      // Fallback to MongoDB search
-      console.log('⚠️ Meilisearch tidak tersedia, menggunakan MongoDB search');
-
-      let mongoQuery = { status: filters.status || 'approved' };
-
-      if (q && q.trim()) {
-        // Case-insensitive regex search - hanya nama_umkm
-        const searchRegex = new RegExp(q.trim(), 'i');
-        mongoQuery.nama_umkm = searchRegex;
       }
-
-      if (filters.kategori) {
-        mongoQuery.kategori = filters.kategori;
-      }
-
-      // Get total count for pagination
-      const totalItems = await UMKM.countDocuments(mongoQuery);
-      const totalPages = Math.ceil(totalItems / itemsPerPage);
-
-      const mongoResults = await UMKM.find(mongoQuery)
-        .limit(itemsPerPage)
-        .skip(offset)
-        .sort({ views: -1 });
-
-      res.status(200).json({
-        success: true,
-        query: q || '',
-        count: mongoResults.length,
-        data: mongoResults,
-        searchEngine: 'mongodb',
-        pagination: {
-          currentPage: currentPage,
-          itemsPerPage: itemsPerPage,
-          totalItems: totalItems,
-          totalPages: totalPages,
-          hasNextPage: currentPage < totalPages,
-          hasPrevPage: currentPage > 1
-        }
-      });
-    } else {
-      res.status(500).json({
-        success: false,
-        message: 'Pencarian gagal',
-        error: result.error
-      });
     }
+
+    const pagination = {
+      currentPage,
+      itemsPerPage,
+      totalItems: finalSearch.totalItems,
+      totalPages: finalSearch.totalPages,
+      hasNextPage: currentPage < finalSearch.totalPages,
+      hasPrevPage: currentPage > 1
+    };
+
+    return res.status(200).json({
+      success: true,
+      query: usedCorrectedQuery ? aiSearch.didYouMean : rawQuery,
+      originalQuery: usedCorrectedQuery ? rawQuery : undefined,
+      correctedQueryUsed: usedCorrectedQuery,
+      count: finalSearch.hits.length,
+      data: finalSearch.hits,
+      searchEngine: usedCorrectedQuery
+        ? `${finalSearch.engine}+groq`
+        : finalSearch.engine,
+      pagination,
+      aiSearch: aiSearch
+        ? {
+            enabled: aiSearch.enabled,
+            provider: aiSearch.provider,
+            model: aiSearch.model,
+            didYouMean: aiSearch.didYouMean,
+            suggestions: aiSearch.suggestions,
+            reason: aiSearch.reason,
+            usedCorrectedQuery
+          }
+        : {
+            enabled: false,
+            suggestions: []
+          }
+    });
   } catch (error) {
     res.status(500).json({
       success: false,
@@ -161,8 +227,44 @@ exports.getSearchStatistics = async (req, res) => {
   }
 };
 
+// @desc    Get AI suggestions for search keyword
+// @route   GET /api/search/suggest
+// @access  Public
+exports.getAISearchSuggestions = async (req, res) => {
+  try {
+    const query = normalizeQueryText(req.query.q);
+    if (!query) {
+      return res.status(400).json({
+        success: false,
+        message: 'Parameter q wajib diisi'
+      });
+    }
+
+    const limit = Math.min(parseInt(req.query.limit, 10) || 5, 10);
+    const aiSuggestion = await getAISearchSuggestion(query, { limit });
+
+    return res.status(200).json({
+      success: true,
+      query,
+      enabled: aiSuggestion.enabled,
+      provider: aiSuggestion.provider,
+      model: aiSuggestion.model,
+      didYouMean: aiSuggestion.didYouMean,
+      suggestions: aiSuggestion.suggestions,
+      reason: aiSuggestion.reason
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: 'Gagal mengambil saran pencarian AI',
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   searchUMKMAdvanced: exports.searchUMKMAdvanced,
   reindexAllUMKM: exports.reindexAllUMKM,
-  getSearchStatistics: exports.getSearchStatistics
+  getSearchStatistics: exports.getSearchStatistics,
+  getAISearchSuggestions: exports.getAISearchSuggestions
 };
